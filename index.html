@@ -118,6 +118,7 @@ textarea.in{resize:vertical}
 <textarea class="in" id="aiq" rows="3" placeholder="例：疲れていて何も作りたくない" aria-label="相談内容"></textarea>
 <button class="btn main" id="aigo" style="width:100%">相談する</button>
 <div id="aiout" aria-live="polite"></div>
+<details class="card" style="margin-top:16px"><summary>AIにつなぐ（APIキー設定）</summary><div class="msg">GitHub Pagesなどでも、あなた自身のAnthropic APIキーでAI相談が使えます。キーはこの端末のブラウザにだけ保存され、アプリのコードには含まれません。他人に共有せず、コンソールで利用上限を設定してください。</div><input class="in" id="akey" type="password" placeholder="sk-ant-..." autocomplete="off" aria-label="APIキー"><div class="row" style="margin-bottom:0"><button class="btn" id="asave">保存</button><button class="btn" id="adel">削除</button></div><div id="astat" class="msg"></div></details>
 </div>
 <div class="tab" id="t-hist" hidden>
 <h2>最近の夕飯</h2>
@@ -750,6 +751,55 @@ $("stampbtn").onclick = () => {
   stampRender();
 };
 
+const AKEY = "dinner-akey";
+const akeyGet = () => { try { return localStorage.getItem(AKEY) || ""; } catch(e){ return ""; } };
+function aiPrompt(q){ return "あなたは日本の家庭料理に詳しい、やさしい夕飯アドバイザーです。次の相談に、スマホで読みやすい300字程度の文章で答えてください。可能なら下の料理リストから1〜3品を選んで提案し、手間を減らすコツも一言添えてください。\n\n【料理リスト】" + DISHES.map(d => d.n).join("、") + "\n\n【相談】" + q; }
+function astat(){ $("astat").textContent = akeyGet() ? "キーは保存済みです" : "キーは未設定です"; }
+$("asave").onclick = () => { const v = $("akey").value.trim(); if (!v) return; try { localStorage.setItem(AKEY, v); } catch(e){} $("akey").value = ""; astat(); };
+$("adel").onclick = () => { try { localStorage.removeItem(AKEY); } catch(e){} astat(); };
+astat();
+
+function localAdvice(q, out, note){
+  const w = kana(q), tired = /疲|しんどい|無理|だる|めんどう|面倒|やる気/.test(w);
+  const tm = w.match(/(\d+)分/), max = tm ? +tm[1] : (tired ? 10 : 60);
+  const mood = /がっつり/.test(w) ? "がっつり" : /ほっこり|温か|あったか/.test(w) ? "ほっこり" : /さっぱり|あっさり|軽/.test(w) ? "さっぱり" : null;
+  const main = /魚/.test(w) ? "魚" : /野菜/.test(w) ? "野菜" : /麺|パスタ|ぱすた|うどん|そば/.test(w) ? "麺・ごはん" : /肉/.test(w) ? "肉" : null;
+  const oki = /沖縄/.test(w), cheap = /節約|安い|安く|金欠|お金/.test(w);
+  const CH = ["卵","豆腐","もやし","キャベツ","大根","じゃがいも","納豆","油揚げ","ひじき","切り干し","春雨","うどん","そうめん","にんじん"];
+  const kat = s => s.replace(/[ぁ-ん]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+  const has = l => (/^[ぁ-ん]+$/.test(l) && l.length <= 2) ? new RegExp("(^|[^ぁ-ん])(" + l + "|" + kat(l) + ")($|[^ぁ-ん])").test(q) : w.includes(kana(l));
+  const terms = FR.filter(([l, ks]) => has(l) || ks.some(k => k.length >= 3 && w.includes(kana(k))));
+  const base = DISHES.filter(d => REC[d.n]);
+  const sc = d => { const t1 = kana(REC[d.n].ing.join(" ")); let s = 0; terms.forEach(([l, ks]) => { if (ks.some(k => t1.includes(kana(k)))) s += 3; }); if (cheap) CH.forEach(k => { if (t1.includes(kana(k))) s += 1; }); return s + Math.random() * 0.5; };
+  const ok = (d, loose) => d.time <= max && (loose || ((!mood || d.mood === mood) && (!main || d.main === main))) && (!oki || OKI.has(d.n));
+  let pool = base.filter(d => ok(d, false)); if (!pool.length) pool = base.filter(d => ok(d, true)); if (!pool.length) pool = base;
+  if (terms.length){ const hit = pool.filter(d => sc(d) >= 3); if (hit.length) pool = hit; }
+  const top = pool.map(d => [sc(d), d]).sort((a, b) => b[0] - a[0]).slice(0, 3).map(x => x[1]);
+  out.textContent = "";
+  const add = (t, cls) => { const e = document.createElement("div"); e.className = cls || ""; e.textContent = t; out.appendChild(e); };
+  if (note) add(note, "msg");
+  add((tired ? "お疲れさまです。今日は手間を最小限にしましょう。" + "どうしても無理なら、" + pick1(EASY) + "でも十分です。" : "条件に合いそうな料理を選びました。"));
+  top.forEach(d => {
+    const b = document.createElement("button"); b.className = "res"; b.type = "button";
+    b.innerHTML = "<b></b><small></small>"; b.firstChild.textContent = d.n; b.lastChild.textContent = "約" + d.time + "分・" + d.mood;
+    b.onclick = () => show(d); out.appendChild(b);
+  });
+  add("※AIにつながっていないため、アプリ内の料理から選んでいます。下の「AIにつなぐ」でキーを設定するとAIで答えます。", "msg");
+}
+async function fallbackAI(q, out){
+  const key = akeyGet();
+  if (!key){ localAdvice(q, out); return; }
+  out.textContent = "考え中…";
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {method: "POST", headers: {"content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true"}, body: JSON.stringify({model: "claude-haiku-5-5", max_tokens: 700, messages: [{role: "user", content: aiPrompt(q)}]})});
+    const j = await r.json();
+    if (!r.ok) throw new Error((j.error && j.error.message) || r.status);
+    out.textContent = (j.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
+  } catch(e){
+    localAdvice(q, out, "AIに接続できませんでした（" + e.message + "）。キーを確認してください。");
+  }
+}
+
 let sampleFn = null;
 (async () => { try { sampleFn = (window.claude && claude.use) ? await claude.use("sample") : null; } catch(e){ sampleFn = null; } })();
 ["疲れて何も作りたくない","冷蔵庫に卵と豆腐しかない","野菜をたくさん食べたい","節約できる夕飯は？"].forEach(t => {
@@ -759,7 +809,8 @@ let sampleFn = null;
 $("aigo").onclick = async () => {
   const q = $("aiq").value.trim(), out = $("aiout");
   if (!q){ out.textContent = "相談内容を入力してください"; return; }
-  if (!sampleFn){ out.textContent = "AI相談は、Claudeアプリで開いた公開ページでのみ使えます。GitHub Pagesなど外部サイトではAIにつながりません。かわりに「冷蔵庫」タブで食材から探せます。"; return; }
+  if (!sampleFn){ await fallbackAI(q, out); return; }
+  if (false){ out.textContent = "AI相談は、Claudeアプリで開いた公開ページでのみ使えます。GitHub Pagesなど外部サイトではAIにつながりません。かわりに「冷蔵庫」タブで食材から探せます。"; return; }
   out.textContent = "考え中…";
   const prompt = "あなたは日本の家庭料理に詳しい、やさしい夕飯アドバイザーです。次の相談に、スマホで読みやすい300字程度の文章で答えてください。可能なら下の料理リストから1〜3品を選んで提案し、手間を減らすコツも一言添えてください。\n\n【料理リスト】" + DISHES.map(d => d.n).join("、") + "\n\n【相談】" + q;
   try {
