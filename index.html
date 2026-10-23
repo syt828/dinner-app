@@ -54,12 +54,26 @@ li span{color:var(--sub);font-size:13px;white-space:nowrap}
 .res small{display:block;color:var(--sub);font-size:13px}
 .msg{color:var(--sub);font-size:14px;margin-top:8px}
 .grp{width:100%;font-size:13px;font-weight:700;color:var(--sub);margin-top:8px}
+main{padding-bottom:100px}
+.tab[hidden]{display:none}
+#nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--surface);border-top:1.5px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);z-index:5}
+#nav button{flex:1;background:none;border:0;padding:8px 2px 6px;font-size:12px;color:var(--sub);font-weight:700}
+#nav button b{display:block;font-size:20px}
+#nav button[aria-current="page"]{color:var(--accent)}
+.card{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:16px}
+.sw{width:100%;padding:20px;font-size:20px;border-radius:18px;background:var(--accent);color:var(--accent-ink);border:0;font-weight:900}
+.timer{font-size:44px;font-weight:900;text-align:center;margin:10px 0 4px}
+.step{text-align:center;font-weight:700;min-height:1.6em}
+.stamps{display:flex;gap:10px;font-size:22px;justify-content:center;margin:12px 0 4px}
+textarea.in{resize:vertical}
+#aiout{white-space:pre-wrap;margin-top:12px;font-size:15px}
 @media (prefers-reduced-motion:reduce){.dish{transition:none}}
 </style>
 </head>
 <body>
 <main>
 <h1>今夜なに食べる？</h1>
+<div class="tab" id="t-menu">
 
 <div class="bowl" aria-live="polite">
   <div id="dish" class="dish">ボタンを押して決めよう</div>
@@ -81,16 +95,37 @@ li span{color:var(--sub);font-size:13px;white-space:nowrap}
 <fieldset><legend>かけられる時間</legend><div class="chips" data-key="time"></div></fieldset>
 <fieldset><legend>ジャンル</legend><div class="chips" data-key="genre"></div></fieldset>
 
+</div>
+<div class="tab" id="t-fridge" hidden>
 <h2>冷蔵庫の食材から探す</h2>
 <fieldset><legend>あるものを選ぶ</legend><div class="chipbox" id="frchips"></div></fieldset>
 <input class="in" id="frtext" type="text" placeholder="ほかの食材（例：春菊、人参、ネギ）入力で自動検索" aria-label="ほかの食材">
 <button class="btn main" id="frgo" style="width:100%">この食材で探す</button>
 <ul id="frres"></ul>
 
+</div>
+<div class="tab" id="t-moti" hidden>
+<h2>やる気スイッチ</h2>
+<div class="card"><div class="msg" style="margin:0 0 8px">今のやる気は？</div><div class="chipbox" id="lvchips"></div><div id="motiOut"></div></div>
+<div class="card"><button class="sw" id="swon">🔥 やる気スイッチ ON</button><div id="timer" class="timer">05:00</div><div id="motiStep" class="step"></div><button class="link" id="swoff">タイマーを止める</button></div>
+<div class="card"><button class="btn main" id="stampbtn" style="width:100%">🍚 今日、作った！</button><div id="stamps" class="stamps"></div><div id="stampn" class="msg" style="text-align:center"></div></div>
+<div id="motiMsg" class="msg" aria-live="polite"></div>
+</div>
+<div class="tab" id="t-ai" hidden>
+<h2>AI相談</h2>
+<div class="msg" style="margin:0 0 8px">夕飯の悩みを書いてください。</div>
+<div class="chipbox" id="aichips" style="margin-bottom:8px"></div>
+<textarea class="in" id="aiq" rows="3" placeholder="例：疲れていて何も作りたくない" aria-label="相談内容"></textarea>
+<button class="btn main" id="aigo" style="width:100%">相談する</button>
+<div id="aiout" aria-live="polite"></div>
+</div>
+<div class="tab" id="t-hist" hidden>
 <h2>最近の夕飯</h2>
 <ul id="hist"></ul>
 <button class="link" id="clear" hidden>履歴を消す</button>
+</div>
 </main>
+<nav id="nav" aria-label="メニュー"></nav>
 
 <script>
 // 名前|主役|気分|分
@@ -467,6 +502,7 @@ function pool(){
 }
 
 function show(d){
+  goTab("menu");
   current = d;
   $("dish").textContent = d.n;
   $("meta").textContent = (OKI.has(d.n) ? "沖縄料理・" : "") + d.mood + "・" + d.main + "・約" + d.time + "分";
@@ -634,7 +670,108 @@ function frUpdate(){
   });
 }
 
+const TABS = [["menu","🍚","献立"],["fridge","🧊","冷蔵庫"],["moti","🔥","やる気"],["ai","💬","AI相談"],["hist","📖","履歴"]];
+function goTab(id){
+  TABS.forEach(([t]) => { $("t-" + t).hidden = t !== id; });
+  document.querySelectorAll("#nav button").forEach(b => b.setAttribute("aria-current", b.dataset.t === id ? "page" : "false"));
+  window.scrollTo(0, 0);
+}
+function renderNav(){
+  const nav = $("nav"); nav.textContent = "";
+  TABS.forEach(([t, ic, lab]) => {
+    const b = document.createElement("button"); b.type = "button"; b.dataset.t = t;
+    b.innerHTML = "<b></b><span></span>"; b.firstChild.textContent = ic; b.lastChild.textContent = lab;
+    b.onclick = () => goTab(t); nav.appendChild(b);
+  });
+}
+
+const pick1 = a => a[Math.floor(Math.random() * a.length)];
+const shuffle = a => a.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map(p => p[1]);
+const EASY = ["卵かけご飯とインスタント味噌汁","納豆ご飯","冷凍うどんをチンしてめんつゆ","カップ麺に冷凍野菜と卵をのせる","コンビニのサラダとレトルトごはん","冷凍餃子を焼くだけ"];
+const STEPS = ["冷蔵庫を開けて中を見るだけ","手を洗うだけ","好きな音楽を1曲かける","お米をといで炊飯器に入れるだけ","フライパンか鍋をコンロに出すだけ","まな板を出すだけ","エプロンを着るだけ"];
+const CHEER = ["今日ここまで来たのがえらい","完璧じゃなくて大丈夫","5分やれば十分、あとはおまけ","洗い物が少ないほど勝ち","食べるだけの日があってもいい"];
+const LV = [["もう無理",0],["しんどい",10],["ふつう",15],["いけそう",30],["やる気満々",60]];
+let lv = -1, tmr, left = 300;
+function lvRender(){
+  const box = $("lvchips"); box.textContent = "";
+  LV.forEach(([l], i) => {
+    const b = document.createElement("button"); b.className = "chip"; b.type = "button"; b.textContent = l;
+    b.setAttribute("aria-pressed", lv === i);
+    b.onclick = () => { lv = i; lvRender(); motiRender(); };
+    box.appendChild(b);
+  });
+}
+function motiRender(){
+  const out = $("motiOut"); out.textContent = ""; if (lv < 0) return;
+  const add = t => { const d = document.createElement("div"); d.className = "msg"; d.textContent = t; out.appendChild(d); };
+  if (lv === 0){
+    add("今日は作らなくてOK。これならほぼ手間なしです：");
+    shuffle(EASY).slice(0, 3).forEach(t => { const d = document.createElement("div"); d.className = "res"; d.textContent = t; out.appendChild(d); });
+    return;
+  }
+  const max = LV[lv][1];
+  add(max + "分以内で作れる料理から：");
+  shuffle(DISHES.filter(d => d.time <= max && REC[d.n])).slice(0, 3).forEach(d => {
+    const b = document.createElement("button"); b.className = "res"; b.type = "button";
+    b.innerHTML = "<b></b><small></small>"; b.firstChild.textContent = d.n; b.lastChild.textContent = "約" + d.time + "分・" + d.mood;
+    b.onclick = () => show(d); out.appendChild(b);
+  });
+}
+function tick(){ $("timer").textContent = String(Math.floor(left / 60)).padStart(2, "0") + ":" + String(left % 60).padStart(2, "0"); }
+$("swon").onclick = () => {
+  $("motiStep").textContent = "まずはこれだけ：" + pick1(STEPS);
+  $("motiMsg").textContent = pick1(CHEER);
+  clearInterval(tmr); left = 300; tick();
+  tmr = setInterval(() => {
+    left--; tick();
+    if (left <= 0){
+      clearInterval(tmr);
+      $("motiMsg").textContent = "5分たちました！続けられそうならそのまま、今日はここまででもOKです";
+      try { navigator.vibrate && navigator.vibrate(300); } catch(e){}
+    }
+  }, 1000);
+};
+$("swoff").onclick = () => { clearInterval(tmr); left = 300; tick(); };
+const SKEY = "dinner-stamps";
+const sget = () => { try { return JSON.parse(localStorage.getItem(SKEY) || "[]"); } catch(e){ return []; } };
+const ymd = d => d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+function stampRender(){
+  const s = sget(), box = $("stamps"); box.textContent = "";
+  for (let i = 6; i >= 0; i--){
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const sp = document.createElement("span"); sp.textContent = s.includes(ymd(d)) ? "🍚" : "・"; box.appendChild(sp);
+  }
+  $("stampn").textContent = "直近7日の記録・累計 " + s.length + "回";
+}
+$("stampbtn").onclick = () => {
+  const s = sget(), t = ymd(new Date());
+  if (!s.includes(t)){ s.push(t); try { localStorage.setItem(SKEY, JSON.stringify(s.slice(-400))); } catch(e){} }
+  $("motiMsg").textContent = "今日の自炊、記録しました 🎉 " + pick1(CHEER);
+  stampRender();
+};
+
+let sampleFn = null;
+(async () => { try { sampleFn = (window.claude && claude.use) ? await claude.use("sample") : null; } catch(e){ sampleFn = null; } })();
+["疲れて何も作りたくない","冷蔵庫に卵と豆腐しかない","野菜をたくさん食べたい","節約できる夕飯は？"].forEach(t => {
+  const b = document.createElement("button"); b.className = "chip"; b.type = "button"; b.textContent = t;
+  b.onclick = () => { $("aiq").value = t; }; $("aichips").appendChild(b);
+});
+$("aigo").onclick = async () => {
+  const q = $("aiq").value.trim(), out = $("aiout");
+  if (!q){ out.textContent = "相談内容を入力してください"; return; }
+  if (!sampleFn){ out.textContent = "AI相談は、Claudeアプリで開いた公開ページでのみ使えます。GitHub Pagesなど外部サイトではAIにつながりません。かわりに「冷蔵庫」タブで食材から探せます。"; return; }
+  out.textContent = "考え中…";
+  const prompt = "あなたは日本の家庭料理に詳しい、やさしい夕飯アドバイザーです。次の相談に、スマホで読みやすい300字程度の文章で答えてください。可能なら下の料理リストから1〜3品を選んで提案し、手間を減らすコツも一言添えてください。\n\n【料理リスト】" + DISHES.map(d => d.n).join("、") + "\n\n【相談】" + q;
+  try {
+    const r = await sampleFn(prompt, {cache: false, onText: ({text}) => { out.textContent = text; }});
+    out.textContent = r.text;
+  } catch(e){
+    out.textContent = (e && e.code === "not_granted") ? "AI相談の許可がありません" : "うまく答えられませんでした。少し待ってからもう一度お試しください。";
+  }
+};
+
 renderChips(); renderFr(); renderHist();
+renderNav(); lvRender(); stampRender(); goTab("menu");
 </script>
 </body>
 </html>
